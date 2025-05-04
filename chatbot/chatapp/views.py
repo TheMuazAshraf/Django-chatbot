@@ -7,7 +7,7 @@ from .models import Chat
 from django.utils import timezone
 
 
-client = Groq(api_key="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", base_url="https://api.groq.com")
+client = Groq(api_key="API key", base_url="https://api.groq.com")
 
 def ask_groq(message):
     response = client.chat.completions.create(
