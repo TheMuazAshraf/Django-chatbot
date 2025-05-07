@@ -1,53 +1,77 @@
 from django.shortcuts import render, redirect
-from django.http import HttpResponse, JsonResponse
+from django.http import JsonResponse
 from groq import Groq
 from django.contrib import auth
 from django.contrib.auth.models import User
-from .models import Chat
+from .models import Chat, ChatSession
 from django.utils import timezone
 
-
-client = Groq(api_key="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", base_url="https://api.groq.com")
+client = Groq(api_key="your_api_key", base_url="https://api.groq.com")
 
 def ask_groq(message):
     response = client.chat.completions.create(
-        model = "llama-3.3-70b-versatile",
-        messages = [{"role": "user", "content": message}],
-        max_tokens = 150,
-        n=1,
-        stop = None,
-        temperature = 0.7,
+        model="llama-3.3-70b-versatile",
+        messages=[
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": message},
+        ]
     )
-    answer = response.choices[0].message.content.strip()
-    return answer
+    return response.choices[0].message.content.strip()
 
-# Create your views here.
 def index(request):
-    chats = Chat.objects.filter(user=request.user)
+    if not request.user.is_authenticated:
+        return redirect('login')
 
+    # Handle session logic
+    session_id = request.GET.get('session_id')
+    if session_id:
+        try:
+            active_session = ChatSession.objects.get(id=session_id, user=request.user)
+        except ChatSession.DoesNotExist:
+            active_session = ChatSession.objects.create(user=request.user)
+    else:
+        active_session = ChatSession.objects.filter(user=request.user).order_by('-created_at').first()
+
+    if not active_session:
+        active_session = ChatSession.objects.create(user=request.user)
+
+    # Handle chat submission
     if request.method == 'POST':
         message = request.POST['message']
         response = ask_groq(message)
-        chat = Chat(user=request.user, message=message, response=response, created_at=timezone.now())
-        chat.save()
+        Chat.objects.create(
+            user=request.user,
+            session=active_session,
+            message=message,
+            response=response,
+            created_at=timezone.now()
+        )
         return JsonResponse({'message': message, 'response': response})
-    return render(request, 'chatbot.html', {'chats': chats})
+
+    # Get all chats in the active session
+    chats = Chat.objects.filter(session=active_session).order_by('created_at')
+
+    # Get all sessions for sidebar
+    chat_sessions = ChatSession.objects.filter(user=request.user).order_by('-created_at')
+
+    return render(request, 'chatbot.html', {
+        'chats': chats,
+        'chat_sessions': chat_sessions,
+        'active_session': active_session
+    })
 
 
 def login(request):
     if request.method == 'POST':
         username = request.POST['username']
         password = request.POST['password']
-        user = auth.authenticate(request, username = username, password = password)
+        user = auth.authenticate(request, username=username, password=password)
         if user is not None:
             auth.login(request, user)
             return redirect('index')
         else:
-            error_message = "Invalid username or password"
-            return render(request, 'login.html', {'error_message': error_message})
-    else:
-        return render(request, 'login.html')
-
+            return render(request, 'login.html', {'error_message': "Invalid username or password"})
+    return render(request, 'login.html')
 
 def register(request):
     if request.method == 'POST':
@@ -63,15 +87,10 @@ def register(request):
                 auth.login(request, user)
                 return redirect('index')
             except:
-                error_message = 'Error Creating account'
-                return render(request, 'register.html', {'error_message' : error_message})
-
+                return render(request, 'register.html', {'error_message': 'Error Creating Account'})
         else:
-            error_message = "password don't match"
-            return render(request, 'register.html', {'error_message' : error_message})
-
+            return render(request, 'register.html', {'error_message': "Passwords don't match"})
     return render(request, 'register.html')
-
 
 def logout(request):
     auth.logout(request)
