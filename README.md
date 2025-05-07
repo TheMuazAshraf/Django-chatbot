@@ -40,7 +40,7 @@ A web-based AI chatbot built with Django and integrated with the Groq API (LLaMA
 
 ## 📷 ScreenShots
 
-![alt text](image.png)
+![alt text](image.png.png)
 
 ---
 
